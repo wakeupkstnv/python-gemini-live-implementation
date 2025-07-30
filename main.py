@@ -31,6 +31,10 @@ async def index():
 async def test():
     return {"test": "test"}
 
+@app.route("/health")
+async def health():
+    return {"status": "healthy"}
+
 @app.websocket("/listen")
 async def websocket_endpoint():
     print("Quart WebSocket: Connection accepted from client.")
