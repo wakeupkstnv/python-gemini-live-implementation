@@ -21,7 +21,7 @@ RUN uv sync
 COPY . .
 
 # Открытие порта
-EXPOSE 8000
+EXPOSE 8677
 
 # Запуск приложения
-CMD ["uv", "run", "python", "-m", "hypercorn", "main:app", "--bind", "0.0.0.0:8667"] 
+CMD ["uv", "run", "python", "-m", "hypercorn", "main:app", "--bind", "0.0.0.0:8677"] 
