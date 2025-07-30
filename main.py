@@ -1,7 +1,7 @@
 import asyncio
 import os
-from quart import Quart, websocket
-from quart_cors import cors
+from fastapi import FastAPI, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 import google.genai as genai
 from google.genai import types # Crucial for Content, Part, Blob
 from dotenv import load_dotenv
@@ -20,18 +20,24 @@ print("Using Google AI SDK with genai.Client.")
 GEMINI_MODEL_NAME = "gemini-2.0-flash-live-001"
 INPUT_SAMPLE_RATE = 16000
 
-app = Quart(__name__)
-app = cors(app, allow_origin="*")
+app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.route("/")
+@app.get("/")
 async def index():
     return {"ping": "pong"}
 
-@app.route("/test")
+@app.get("/test")
 async def test():
     return {"test": "test"}
 
-@app.route("/health")
+@app.get("/health")
 async def health():
     return {"status": "healthy"}
 
@@ -71,7 +77,7 @@ async def websocket_endpoint():
                 try:
                     while active_processing:
                         try:
-                            client_data = await asyncio.wait_for(websocket.receive(), timeout=0.2) # Reverted to receive()
+                            client_data = await asyncio.wait_for(websocket.receive_text() if isinstance(websocket, WebSocket) else websocket.receive(), timeout=0.2)
 
                             if isinstance(client_data, str):
                                 message_text = client_data
@@ -143,7 +149,7 @@ async def websocket_endpoint():
                             # Process server content (audio, text, errors)
                             if response.data is not None: # This is where audio bytes are usually found in live responses
                                 try:
-                                    await websocket.send(response.data)
+                                    await websocket.send_bytes(response.data) if isinstance(websocket, WebSocket) else await websocket.send(response.data)
                                 except Exception as send_exc:
                                     print(f"Quart Backend: Error sending to client WebSocket: {type(send_exc).__name__}: {send_exc}")
                                     active_processing = False # Critical error sending to client, stop all processing.
@@ -154,7 +160,7 @@ async def websocket_endpoint():
                                     print("Quart Backend: Gemini DETECTED AN INTERRUPTION from user audio!")
                                     print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
                                     try:
-                                        await websocket.send('{"action": "interrupt_playback"}')
+                                        await websocket.send_text('{"action": "interrupt_playback"}') if isinstance(websocket, WebSocket) else await websocket.send('{"action": "interrupt_playback"}')
                                         print("Quart Backend: Sent interrupt_playback signal to client.")
                                     except Exception as send_exc:
                                         print(f"Quart Backend: Error sending interrupt_playback signal to client: {type(send_exc).__name__}: {send_exc}")
@@ -167,7 +173,7 @@ async def websocket_endpoint():
                                 if response.text is not None: # Direct text attribute
                                     print(f"Quart Backend: Gemini Text (from response.text): {response.text}")
                                     try:
-                                        await websocket.send(f"[TEXT_FROM_GEMINI]: {response.text}")
+                                        await websocket.send_text(f"[TEXT_FROM_GEMINI]: {response.text}") if isinstance(websocket, WebSocket) else await websocket.send(f"[TEXT_FROM_GEMINI]: {response.text}")
                                     except Exception as send_exc:
                                         print(f"Quart Backend: Error sending text to client WebSocket: {type(send_exc).__name__}: {send_exc}")
                                         active_processing = False; break
@@ -179,7 +185,7 @@ async def websocket_endpoint():
                                         if part.text:
                                             print(f"Quart Backend: Gemini Text (from model_turn.parts): {part.text}")
                                             try:
-                                                await websocket.send(f"[TEXT_FROM_GEMINI]: {part.text}")
+                                                await websocket.send_text(f"[TEXT_FROM_GEMINI]: {part.text}") if isinstance(websocket, WebSocket) else await websocket.send(f"[TEXT_FROM_GEMINI]: {part.text}")
                                             except Exception as send_exc:
                                                 print(f"Quart Backend: Error sending model_turn text to client WebSocket: {type(send_exc).__name__}: {send_exc}")
                                                 active_processing = False; break
@@ -193,7 +199,7 @@ async def websocket_endpoint():
                                     if transcript:
                                         print(f"Quart Backend: Gemini Output Transcription: {transcript}")
                                         try:
-                                            await websocket.send(f"[TRANSCRIPT_FROM_GEMINI]: {transcript}")
+                                            await websocket.send_text(f"[TRANSCRIPT_FROM_GEMINI]: {transcript}") if isinstance(websocket, WebSocket) else await websocket.send(f"[TRANSCRIPT_FROM_GEMINI]: {transcript}")
                                         except Exception as send_exc:
                                             print(f"Quart Backend: Error sending transcript to client WebSocket: {type(send_exc).__name__}: {send_exc}")
                                             active_processing = False; break
@@ -208,7 +214,7 @@ async def websocket_endpoint():
                                  if hasattr(response.error, 'message'): error_details = response.error.message
                                  print(f"Quart Backend: Gemini Error in response: {error_details}")
                                  try:
-                                     await websocket.send(f"[ERROR_FROM_GEMINI]: {str(error_details)}")
+                                     await websocket.send_text(f"[ERROR_FROM_GEMINI]: {str(error_details)}") if isinstance(websocket, WebSocket) else await websocket.send(f"[ERROR_FROM_GEMINI]: {str(error_details)}")
                                  except Exception as send_exc:
                                      print(f"Quart Backend: Error sending Gemini error to client WebSocket: {type(send_exc).__name__}: {send_exc}")
                                  active_processing = False # Gemini reported an error, stop all processing.

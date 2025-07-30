@@ -24,4 +24,4 @@ COPY . .
 EXPOSE 8677
 
 # Запуск приложения
-CMD ["uv", "run", "python", "-m", "hypercorn", "main:app", "--bind", "0.0.0.0:8677"] 
+CMD ["uv", "run", "python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8677"] 
