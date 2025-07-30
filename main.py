@@ -25,7 +25,11 @@ app = cors(app, allow_origin="*")
 
 @app.route("/")
 async def index():
-    return "Hello, World!"
+    return {"ping": "pong"}
+
+@app.route("/test")
+async def test():
+    return {"test": "test"}
 
 @app.websocket("/listen")
 async def websocket_endpoint():
