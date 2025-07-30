@@ -24,4 +24,4 @@ COPY . .
 EXPOSE 8000
 
 # Запуск приложения
-CMD ["uv", "run", "python", "-m", "hypercorn", "main:app", "--bind", "0.0.0.0:8000"] 
+CMD ["uv", "run", "python", "-m", "hypercorn", "main:app", "--bind", "0.0.0.0:8667"] 
