@@ -42,8 +42,9 @@ async def health():
     return {"status": "healthy"}
 
 @app.websocket("/listen")
-async def websocket_endpoint():
-    print("Quart WebSocket: Connection accepted from client.")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    print("FastAPI WebSocket: Connection accepted from client.")
     current_session_handle = None 
 
     gemini_live_config = types.LiveConnectConfig(
@@ -77,11 +78,49 @@ async def websocket_endpoint():
                 try:
                     while active_processing:
                         try:
-                            client_data = await asyncio.wait_for(websocket.receive_text() if isinstance(websocket, WebSocket) else websocket.receive(), timeout=0.2)
+                            # Use websocket.receive() which returns a WebSocketMessage
+                            client_data = await asyncio.wait_for(websocket.receive(), timeout=0.1)
+                            print(f"Quart Backend: Received WebSocketMessage: {type(client_data)}")
+                            
+                            # Extract the actual data from the message
+                            if isinstance(client_data, dict):
+                                if client_data.get('type') == 'websocket.receive':
+                                    if 'text' in client_data:
+                                        client_data = client_data['text']
+                                        print(f"Quart Backend: Extracted text: {type(client_data)}")
+                                    elif 'bytes' in client_data:
+                                        client_data = client_data['bytes']
+                                        print(f"Quart Backend: Extracted bytes: {type(client_data)}")
+                                    else:
+                                        print(f"Quart Backend: Unknown message format: {client_data}")
+                                        continue
+                                else:
+                                    print(f"Quart Backend: Unexpected message type: {client_data.get('type')}")
+                                    continue
+                            elif hasattr(client_data, 'type'):
+                                if client_data.type == 'websocket.receive':
+                                    if hasattr(client_data, 'text'):
+                                        client_data = client_data.text
+                                        print(f"Quart Backend: Extracted text: {type(client_data)}")
+                                    elif hasattr(client_data, 'bytes'):
+                                        client_data = client_data.bytes
+                                        print(f"Quart Backend: Extracted bytes: {type(client_data)}")
+                                    else:
+                                        print(f"Quart Backend: Unknown message format: {client_data}")
+                                        continue
+                                else:
+                                    print(f"Quart Backend: Unexpected message type: {client_data.type}")
+                                    continue
+                            else:
+                                print(f"Quart Backend: No type attribute in message: {client_data}")
+                                continue
 
+                            # Handle different data types
                             if isinstance(client_data, str):
                                 message_text = client_data
                                 print(f"Quart Backend: Received text from client: '{message_text}'")
+                                
+                                # Process text messages
                                 prompt_for_gemini = message_text
                                 if message_text == "SEND_TEST_AUDIO_PLEASE":
                                     prompt_for_gemini = "Hello Gemini, please say 'testing one two three'."
@@ -91,14 +130,31 @@ async def websocket_endpoint():
                                     role="user",
                                     parts=[types.Part(text=prompt_for_gemini)]
                                 )
-                                # For a text prompt that expects a full response, turn_complete might be true.
-                                # However, in a live session, even text might be part of an ongoing exchange.
-                                # The example shows sending turns without explicitly setting turn_complete on send_client_content.
-                                # It might be part of the Content object itself if needed, or controlled by session.
                                 await session.send_client_content(turns=user_content_for_text)
                                 print(f"Quart Backend: Prompt '{prompt_for_gemini}' sent to Gemini.")
-                            
+                                
+                            elif isinstance(client_data, dict):
+                                # Handle JSON messages
+                                message_text = client_data.get('text', str(client_data))
+                                print(f"Quart Backend: Received JSON from client: '{message_text}'")
+                                
+                                # Process text messages
+                                prompt_for_gemini = message_text
+                                if message_text == "SEND_TEST_AUDIO_PLEASE":
+                                    prompt_for_gemini = "Hello Gemini, please say 'testing one two three'."
+                                
+                                print(f"Quart Backend: Sending text prompt to Gemini: '{prompt_for_gemini}'")
+                                user_content_for_text = types.Content(
+                                    role="user",
+                                    parts=[types.Part(text=prompt_for_gemini)]
+                                )
+                                await session.send_client_content(turns=user_content_for_text)
+                                print(f"Quart Backend: Prompt '{prompt_for_gemini}' sent to Gemini.")
+                                
                             elif isinstance(client_data, bytes):
+                                print(f"Quart Backend: Received audio data: {len(client_data)} bytes")
+                                
+                                # Process audio data
                                 audio_chunk = client_data
                                 if audio_chunk:
                                     print(f"Quart Backend: Received mic audio chunk: {len(audio_chunk)} bytes")
@@ -117,6 +173,8 @@ async def websocket_endpoint():
                             await asyncio.sleep(0.01); continue
                         except Exception as e_client_input: 
                             print(f"Quart Backend: Error/disconnect receiving from client: {type(e_client_input).__name__}: {e_client_input}")
+                            print(f"Quart Backend: Client data type: {type(client_data) if 'client_data' in locals() else 'undefined'}")
+                            print(f"Quart Backend: Client data content: {client_data if 'client_data' in locals() else 'undefined'}")
                             active_processing = False; break
                         if not active_processing: break 
                         await asyncio.sleep(0.01)
@@ -149,7 +207,7 @@ async def websocket_endpoint():
                             # Process server content (audio, text, errors)
                             if response.data is not None: # This is where audio bytes are usually found in live responses
                                 try:
-                                    await websocket.send_bytes(response.data) if isinstance(websocket, WebSocket) else await websocket.send(response.data)
+                                    await websocket.send_bytes(response.data)
                                 except Exception as send_exc:
                                     print(f"Quart Backend: Error sending to client WebSocket: {type(send_exc).__name__}: {send_exc}")
                                     active_processing = False # Critical error sending to client, stop all processing.
@@ -160,7 +218,7 @@ async def websocket_endpoint():
                                     print("Quart Backend: Gemini DETECTED AN INTERRUPTION from user audio!")
                                     print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
                                     try:
-                                        await websocket.send_text('{"action": "interrupt_playback"}') if isinstance(websocket, WebSocket) else await websocket.send('{"action": "interrupt_playback"}')
+                                        await websocket.send_text('{"action": "interrupt_playback"}')
                                         print("Quart Backend: Sent interrupt_playback signal to client.")
                                     except Exception as send_exc:
                                         print(f"Quart Backend: Error sending interrupt_playback signal to client: {type(send_exc).__name__}: {send_exc}")
@@ -173,7 +231,7 @@ async def websocket_endpoint():
                                 if response.text is not None: # Direct text attribute
                                     print(f"Quart Backend: Gemini Text (from response.text): {response.text}")
                                     try:
-                                        await websocket.send_text(f"[TEXT_FROM_GEMINI]: {response.text}") if isinstance(websocket, WebSocket) else await websocket.send(f"[TEXT_FROM_GEMINI]: {response.text}")
+                                        await websocket.send_text(f"[TEXT_FROM_GEMINI]: {response.text}")
                                     except Exception as send_exc:
                                         print(f"Quart Backend: Error sending text to client WebSocket: {type(send_exc).__name__}: {send_exc}")
                                         active_processing = False; break
@@ -185,7 +243,7 @@ async def websocket_endpoint():
                                         if part.text:
                                             print(f"Quart Backend: Gemini Text (from model_turn.parts): {part.text}")
                                             try:
-                                                await websocket.send_text(f"[TEXT_FROM_GEMINI]: {part.text}") if isinstance(websocket, WebSocket) else await websocket.send(f"[TEXT_FROM_GEMINI]: {part.text}")
+                                                await websocket.send_text(f"[TEXT_FROM_GEMINI]: {part.text}")
                                             except Exception as send_exc:
                                                 print(f"Quart Backend: Error sending model_turn text to client WebSocket: {type(send_exc).__name__}: {send_exc}")
                                                 active_processing = False; break
@@ -199,7 +257,7 @@ async def websocket_endpoint():
                                     if transcript:
                                         print(f"Quart Backend: Gemini Output Transcription: {transcript}")
                                         try:
-                                            await websocket.send_text(f"[TRANSCRIPT_FROM_GEMINI]: {transcript}") if isinstance(websocket, WebSocket) else await websocket.send(f"[TRANSCRIPT_FROM_GEMINI]: {transcript}")
+                                            await websocket.send_text(f"[TRANSCRIPT_FROM_GEMINI]: {transcript}")
                                         except Exception as send_exc:
                                             print(f"Quart Backend: Error sending transcript to client WebSocket: {type(send_exc).__name__}: {send_exc}")
                                             active_processing = False; break
@@ -214,7 +272,7 @@ async def websocket_endpoint():
                                  if hasattr(response.error, 'message'): error_details = response.error.message
                                  print(f"Quart Backend: Gemini Error in response: {error_details}")
                                  try:
-                                     await websocket.send_text(f"[ERROR_FROM_GEMINI]: {str(error_details)}") if isinstance(websocket, WebSocket) else await websocket.send(f"[ERROR_FROM_GEMINI]: {str(error_details)}")
+                                     await websocket.send_text(f"[ERROR_FROM_GEMINI]: {str(error_details)}")
                                  except Exception as send_exc:
                                      print(f"Quart Backend: Error sending Gemini error to client WebSocket: {type(send_exc).__name__}: {send_exc}")
                                  active_processing = False # Gemini reported an error, stop all processing.
