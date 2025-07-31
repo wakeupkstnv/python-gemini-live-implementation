@@ -45,7 +45,7 @@ async def health():
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     print("FastAPI WebSocket: Connection accepted from client.")
-    current_session_handle = None 
+    current_session_handle = None
 
     gemini_live_config = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
@@ -78,49 +78,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 try:
                     while active_processing:
                         try:
-                            # Use websocket.receive() which returns a WebSocketMessage
-                            client_data = await asyncio.wait_for(websocket.receive(), timeout=0.1)
-                            print(f"Quart Backend: Received WebSocketMessage: {type(client_data)}")
-                            
-                            # Extract the actual data from the message
-                            if isinstance(client_data, dict):
-                                if client_data.get('type') == 'websocket.receive':
-                                    if 'text' in client_data:
-                                        client_data = client_data['text']
-                                        print(f"Quart Backend: Extracted text: {type(client_data)}")
-                                    elif 'bytes' in client_data:
-                                        client_data = client_data['bytes']
-                                        print(f"Quart Backend: Extracted bytes: {type(client_data)}")
-                                    else:
-                                        print(f"Quart Backend: Unknown message format: {client_data}")
-                                        continue
-                                else:
-                                    print(f"Quart Backend: Unexpected message type: {client_data.get('type')}")
-                                    continue
-                            elif hasattr(client_data, 'type'):
-                                if client_data.type == 'websocket.receive':
-                                    if hasattr(client_data, 'text'):
-                                        client_data = client_data.text
-                                        print(f"Quart Backend: Extracted text: {type(client_data)}")
-                                    elif hasattr(client_data, 'bytes'):
-                                        client_data = client_data.bytes
-                                        print(f"Quart Backend: Extracted bytes: {type(client_data)}")
-                                    else:
-                                        print(f"Quart Backend: Unknown message format: {client_data}")
-                                        continue
-                                else:
-                                    print(f"Quart Backend: Unexpected message type: {client_data.type}")
-                                    continue
-                            else:
-                                print(f"Quart Backend: No type attribute in message: {client_data}")
-                                continue
+                            client_data = await asyncio.wait_for(websocket.receive_text(), timeout=0.2)
 
-                            # Handle different data types
                             if isinstance(client_data, str):
                                 message_text = client_data
                                 print(f"Quart Backend: Received text from client: '{message_text}'")
-                                
-                                # Process text messages
                                 prompt_for_gemini = message_text
                                 if message_text == "SEND_TEST_AUDIO_PLEASE":
                                     prompt_for_gemini = "Hello Gemini, please say 'testing one two three'."
@@ -130,31 +92,20 @@ async def websocket_endpoint(websocket: WebSocket):
                                     role="user",
                                     parts=[types.Part(text=prompt_for_gemini)]
                                 )
+                                # For a text prompt that expects a full response, turn_complete might be true.
+                                # However, in a live session, even text might be part of an ongoing exchange.
+                                # The example shows sending turns without explicitly setting turn_complete on send_client_content.
+                                # It might be part of the Content object itself if needed, or controlled by session.
                                 await session.send_client_content(turns=user_content_for_text)
                                 print(f"Quart Backend: Prompt '{prompt_for_gemini}' sent to Gemini.")
-                                
-                            elif isinstance(client_data, dict):
-                                # Handle JSON messages
-                                message_text = client_data.get('text', str(client_data))
-                                print(f"Quart Backend: Received JSON from client: '{message_text}'")
-                                
-                                # Process text messages
-                                prompt_for_gemini = message_text
-                                if message_text == "SEND_TEST_AUDIO_PLEASE":
-                                    prompt_for_gemini = "Hello Gemini, please say 'testing one two three'."
-                                
-                                print(f"Quart Backend: Sending text prompt to Gemini: '{prompt_for_gemini}'")
-                                user_content_for_text = types.Content(
-                                    role="user",
-                                    parts=[types.Part(text=prompt_for_gemini)]
-                                )
-                                await session.send_client_content(turns=user_content_for_text)
-                                print(f"Quart Backend: Prompt '{prompt_for_gemini}' sent to Gemini.")
-                                
-                            elif isinstance(client_data, bytes):
-                                print(f"Quart Backend: Received audio data: {len(client_data)} bytes")
-                                
-                                # Process audio data
+                            
+                            else:
+                                print(f"Quart Backend: Received unexpected data type from client: {type(client_data)}, content: {client_data[:100] if isinstance(client_data, bytes) else client_data}")
+
+                        except asyncio.TimeoutError:
+                            # Try to receive binary data for audio
+                            try:
+                                client_data = await asyncio.wait_for(websocket.receive_bytes(), timeout=0.1)
                                 audio_chunk = client_data
                                 if audio_chunk:
                                     print(f"Quart Backend: Received mic audio chunk: {len(audio_chunk)} bytes")
@@ -166,15 +117,10 @@ async def websocket_endpoint(websocket: WebSocket):
                                         )
                                     )
                                     print(f"Quart Backend: Successfully sent mic audio to Gemini via send_realtime_input.")
-                            else:
-                                print(f"Quart Backend: Received unexpected data type from client: {type(client_data)}, content: {client_data[:100] if isinstance(client_data, bytes) else client_data}")
-
-                        except asyncio.TimeoutError:
-                            await asyncio.sleep(0.01); continue
+                            except asyncio.TimeoutError:
+                                await asyncio.sleep(0.01); continue
                         except Exception as e_client_input: 
                             print(f"Quart Backend: Error/disconnect receiving from client: {type(e_client_input).__name__}: {e_client_input}")
-                            print(f"Quart Backend: Client data type: {type(client_data) if 'client_data' in locals() else 'undefined'}")
-                            print(f"Quart Backend: Client data content: {client_data if 'client_data' in locals() else 'undefined'}")
                             active_processing = False; break
                         if not active_processing: break 
                         await asyncio.sleep(0.01)
