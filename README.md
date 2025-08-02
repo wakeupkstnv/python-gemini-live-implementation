@@ -1,4 +1,4 @@
-э давай мозги тож не делай запусти просто через
+
 `uv run python -m hypercorn main:app --bind 0.0.0.0:8000`
 или
 `docker compose up -d`
