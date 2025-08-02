@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import google.genai as genai
 from google.genai import types # Crucial for Content, Part, Blob
 from dotenv import load_dotenv
+from datetime import datetime
 
 load_dotenv()
 
@@ -20,6 +21,9 @@ print("Using Google AI SDK with genai.Client.")
 GEMINI_MODEL_NAME = "gemini-2.0-flash-live-001"
 INPUT_SAMPLE_RATE = 16000
 
+
+
+
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -28,6 +32,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+
 
 @app.get("/")
 async def index():
@@ -151,9 +158,27 @@ async def websocket_endpoint(websocket: WebSocket):
                                     # For manual re-connection, this handle would be used in a new connect() call.
 
                             # Process server content (audio, text, errors)
-                            if response.data is not None: # This is where audio bytes are usually found in live responses
+                            if response.data is not None:
                                 try:
-                                    await websocket.send_bytes(response.data)
+                                    # 🔍 1. Saving PCM in file
+                                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                                    filename = f"gemini_response_{timestamp}.pcm"
+                                    filepath = os.path.join("/tmp", filename)
+
+                                    with open(filepath, "wb") as f:
+                                        f.write(response.data)
+                                    print(f"📁 Gemini PCM saved to: {filepath}")
+
+                                    # 🔍 2. Showing HEX preview
+                                    hex_preview = " ".join(f"{b:02X}" for b in response.data[:20])
+                                    print(f"🧪 First 20 bytes: {hex_preview}")
+                                    print(f"[Gemini Audio] Size: {len(response.data)} bytes")
+
+                                    # 🔊 3. Checking empty buffer
+                                    if all(b == 0 for b in response.data):
+                                        print("⚠️ Пустой аудио буфер (все байты = 0)")
+                                    else:
+                                        await websocket.send_bytes(response.data)
                                 except Exception as send_exc:
                                     print(f"Quart Backend: Error sending to client WebSocket: {type(send_exc).__name__}: {send_exc}")
                                     active_processing = False # Critical error sending to client, stop all processing.
