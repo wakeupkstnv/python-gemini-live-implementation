@@ -105,7 +105,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         except asyncio.TimeoutError:
                             # Try to receive binary data for audio
                             try:
-                                client_data = await asyncio.wait_for(websocket.receive_bytes(), timeout=0.1)
+                                client_data = await asyncio.wait_for(websocket.receive_bytes(), timeout=0.2)
                                 audio_chunk = client_data
                                 if audio_chunk:
                                     print(f"Quart Backend: Received mic audio chunk: {len(audio_chunk)} bytes")
